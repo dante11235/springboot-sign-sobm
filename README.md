@@ -42,17 +42,6 @@ This container is automatically built and signed using Cosign in GitHub Actions.
 cosign generate-key-pair github://$REPO_OWNER/$REPO_NAME
 ```
 
-### Verification
-To verify the container signature using our public key:
-
-```bash
-# Download the public key
-curl -O https://raw.githubusercontent.com/dante11235/springboot-sign-sobm/main/cosign.pub
-
-# Verify the signature
-cosign verify --key cosign.pub ghcr.io/dante11235/springboot-sign-sobm:main
-```
-
 To verify the SBOM:
 ```bash
 cosign verify-attestation --key cosign.pub ghcr.io/dante11235/springboot-sign-sobm:main
