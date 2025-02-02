@@ -1,0 +1,134 @@
+name: Build and Sign Container
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - id: docker_meta
+        uses: docker/metadata-action@v4.4.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: type=sha,format=long
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+
+      # Generate SBOM
+      - name: Generate SBOM
+        run: gradle cyclonedxBom
+
+      # Upload SBOM as artifact
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: build/reports/bom.json
+
+      - name: Log into registry ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Copy SBOM into Docker build context
+      - name: Prepare SBOM for Docker
+        run: |
+          mkdir -p docker-context
+          cp build/reports/bom.json docker-context/
+          cp -r src docker-context/
+          cp build.gradle docker-context/
+          cp settings.gradle docker-context/
+          cp Dockerfile docker-context/
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: docker-context
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.title=${{ github.event.repository.name }}
+            org.opencontainers.image.description=${{ github.event.repository.description }}
+            org.opencontainers.image.url=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # Sign with private key from secrets
+      - name: Sign image with a key
+        run: |
+          images=""
+          for tag in ${TAGS}; do
+            images+="${tag}@${DIGEST} "
+          done
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY ${images}
+          
+
+        env:
+          TAGS: ${{ steps.docker_meta.outputs.tags }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+
+      # Attach SBOM to the container image
+      - name: Attach SBOM to container
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: |
+          images=""
+          for tag in ${TAGS}; do
+            images+="${tag}@${DIGEST} "
+          done
+          for image in ${images}; do
+            cosign attest --key env://COSIGN_PRIVATE_KEY --type cyclonedx --predicate build/reports/bom.json ${image}
+          done
+         
+      - name: Verify SBOM
+        env:
+          COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: |
+          images=""
+          for tag in ${TAGS}; do
+            images+="${tag}@${DIGEST} "
+          done
+          for image in ${images}; do
+            cosign verify-attestation --key env://COSIGN_PUBLIC_KEY ${image}
+          done
+
+      - uses: Mattraks/delete-workflow-runs@v2
+        with:
+          keep_minimum_runs: 1
