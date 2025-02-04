@@ -1,0 +1,23 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+    name: check-signed-images
+spec:
+    validationFailureAction: Enforce
+    background: true
+    webhookTimeoutSeconds: 30
+    failurePolicy: Fail
+    rules:
+        - name: check-image-signature
+          match:
+              any:
+                  - resources:
+                        kinds:
+                            - Pod
+          verifyImages:
+              - image: "nexus.test-env.sk/repository/dante11235*"
+                key: |-
+                  -----BEGIN PUBLIC KEY-----
+                  MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnZME1l8AmSgawI7+Limz9y518QbT
+                  F6i/afP0H615YHmIZegNJCijTWkvwf3EPjsAfiszNp1T1P2LrgRlvqrETA==
+                  -----END PUBLIC KEY-----
