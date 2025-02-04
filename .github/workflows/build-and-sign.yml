@@ -72,8 +72,6 @@ jobs:
           cp build.gradle docker-context/
           cp settings.gradle docker-context/
           cp Dockerfile docker-context/
-          echo ${{ secrets.COSIGN_PUBLIC_KEY }} > cosign.pub
-          cat cosign.pub
 
       - name: Build and push Docker image
         id: build-and-push
