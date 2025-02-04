@@ -28,7 +28,7 @@ jobs:
       - id: docker_meta
         uses: docker/metadata-action@v4.4.0
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ${{ env.REGISTRY }}/repository/${{ github.repository }}
           tags: type=sha,format=long
 
       - name: Set up JDK 17
@@ -79,8 +79,7 @@ jobs:
         with:
           context: docker-context
           push: true
-          #tags: ${{ steps.docker_meta.outputs.tags }}
-          tags: ${{ env.NEXUS_REGISTRY }}/repository/${{ github.event.repository.name }}:${{ github.sha }}
+          tags: ${{ steps.docker_meta.outputs.tags }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.title=${{ github.event.repository.name }}
